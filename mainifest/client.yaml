@@ -1,0 +1,24 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gimi-grpc-client
+  labels:
+    app: gimi-grpc-client
+    version: 0.0.1-alpha1.1
+  annotations:
+    description: Gimi testing GRPC with ISTIO
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 998
+    fsGroup: 998
+  restartPolicy: Never
+  containers:
+  - name: grpc-client
+    image: gimil/hi:latest
+    imagePullPolicy: Always
+    args:
+      - "client"
+      - "gimi-grpc-server:8080"
+      - "1"

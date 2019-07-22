@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Gimi/fly/hello"
@@ -60,7 +62,11 @@ Thank you for helping making Go a better language!
 
 By Robert Griesemer, for the Go team`
 
-func startClient(addr string) {
+func startClient(addr string, concurrency int) {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 	dialCtx, _ := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -71,40 +77,54 @@ func startClient(addr string) {
 	}
 	log.Printf("Connected to %s", addr)
 
-	c := hello.NewConnectorClient(conn)
-	stream, err := c.Hi(ctx)
-	if err != nil {
-		log.Printf("ERROR: failed to call Hi: %v", err)
-		return
+	var wg sync.WaitGroup
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			c := hello.NewConnectorClient(conn)
+			stream, err := c.Hi(ctx)
+			if err != nil {
+				log.Printf("[#%d] ERROR: failed to call Hi: %v", id, err)
+				return
+			}
+			log.Printf("[#%d] send %d bytes of data", id, len(data))
+			var n int
+			tick := time.Tick(1 * time.Nanosecond)
+			for range tick {
+				n += 1
+				log.Printf("[#%d] sending heartbeat: %d", id, n)
+				if err := stream.Send(&hello.Data{
+					Chunk: data,
+				}); err != nil {
+					log.Printf("[#%d] send error: %v", id, err)
+					break
+				}
+			}
+			if _, err := stream.CloseAndRecv(); err != nil {
+				log.Printf("[#%d] receive error: %v", id, err)
+				return
+			}
+			log.Printf("[#%d] received and closed", id)
+		}(i)
 	}
-	log.Printf("send %d bytes of data", len(data))
-	var n int
-	tick := time.Tick(1 * time.Nanosecond)
-	for now := range tick {
-		n += 1
-		log.Printf("%v sending heartbeat: %d", now, n)
-		if err := stream.Send(&hello.Data{
-			Chunk: data,
-		}); err != nil {
-			log.Printf("send error: %v", err)
-			break
-		}
-	}
-	if _, err := stream.CloseAndRecv(); err != nil {
-		log.Printf("receive error: %v", err)
-		return
-	}
-	log.Printf("received and closed")
+	wg.Wait()
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		log.Panic("Usage: " + os.Args[0] + " <server|client> <addr>")
+	if len(os.Args) < 3 {
+		log.Panic("Usage: " + os.Args[0] + " <server|client> <addr> [client-concurrency]")
 	}
 	switch os.Args[1] {
 	case "server":
 		startServer(os.Args[2])
 	default:
-		startClient(os.Args[2])
+		n := 1
+		if len(os.Args) > 3 {
+			n, _ = strconv.Atoi(os.Args[3])
+		}
+		startClient(os.Args[2], n)
 	}
 }

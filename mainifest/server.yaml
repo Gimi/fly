@@ -1,0 +1,52 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gimi-grpc-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gimi-grpc-server
+      version: 0.0.1-alpha1.1
+  template:
+    metadata:
+      labels:
+        app: gimi-grpc-server
+        version: 0.0.1-alpha1.1
+      annotations:
+        description: Gimi testing GRPC with ISTIO
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 998
+        fsGroup: 998
+      containers:
+      - name: grpc-server
+        image: gimil/hi:latest
+        imagePullPolicy: Always
+        args:
+          - server
+          - "0.0.0.0:8080"
+        ports:
+          - name: grpc
+            containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gimi-grpc-server
+  labels:
+      app: gimi-grpc-server
+      version: 0.0.1-alpha1.1
+  annotations:
+    description: Service for Gimi GRPC test server
+spec:
+  type: ClusterIP
+  selector:
+      app: gimi-grpc-server
+      version: 0.0.1-alpha1.1
+  ports:
+    - port: 8080
+      name: grpc
