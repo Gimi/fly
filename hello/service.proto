@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package hello;
+option go_package = "hello";
+
+import "google/protobuf/empty.proto";
+
+message Data {
+  string chunk = 1;
+}
+
+service Connector {
+  rpc Hi(stream Data) returns (google.protobuf.Empty) {}
+}
