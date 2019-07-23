@@ -26,17 +26,20 @@ func newService(sleepSeconds int) service {
 
 func (s service) Hi(srv hello.Connector_HiServer) error {
 	log.Println("oh, someone just said 'Hi'")
-	d, err := srv.Recv()
-	if err != nil {
-		log.Printf("receive error: %v", err)
-		return err
+	for {
+		d, err := srv.Recv()
+		if err != nil {
+			log.Printf("receive error: %v", err)
+			break
+		}
+		log.Printf("got one message (%d bytes), going to sleep %f", len(d.Chunk), s.sleepSeconds.Seconds())
+		time.Sleep(s.sleepSeconds)
 	}
-	log.Printf("got one message (%d bytes), going to sleep %f", len(d.Chunk), s.sleepSeconds.Seconds())
-	time.Sleep(s.sleepSeconds)
-	log.Printf("sleep done, read buffered messages")
+	log.Printf("try to read buffered messages")
 	n := 0
+	var err error
 	for err == nil {
-		d, err = srv.Recv()
+		_, err = srv.Recv()
 		if err == nil {
 			n += 1
 		}
