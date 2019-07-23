@@ -31,11 +31,19 @@ func (s service) Hi(srv hello.Connector_HiServer) error {
 		log.Printf("receive error: %v", err)
 		return err
 	}
-	log.Printf("got one message:\n%s\ngoing to sleep %f", d.Chunk, s.sleepSeconds.Seconds())
+	log.Printf("got one message (%d bytes), going to sleep %f", len(d.Chunk), s.sleepSeconds.Seconds())
 	time.Sleep(s.sleepSeconds)
-	log.Printf("closing stream")
+	log.Printf("sleep done, read buffered messages")
+	n := 0
+	for err == nil {
+		d, err = srv.Recv()
+		if err == nil {
+			n += 1
+		}
+	}
+	log.Printf("got %d buffered messages, Recv() error: %v, closing stream", n, err)
 	if err := srv.SendAndClose(&empty.Empty{}); err != nil {
-		log.Printf("send error: %v", err)
+		log.Printf("close stream error: %v", err)
 	}
 	return nil
 }
