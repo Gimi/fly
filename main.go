@@ -16,7 +16,13 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-type service struct{}
+type service struct {
+	sleepSeconds time.Duration
+}
+
+func newService(sleepSeconds int) service {
+	return service{time.Duration(sleepSeconds) * time.Second}
+}
 
 func (s service) Hi(srv hello.Connector_HiServer) error {
 	log.Println("oh, someone just said 'Hi'")
@@ -25,16 +31,17 @@ func (s service) Hi(srv hello.Connector_HiServer) error {
 		log.Printf("receive error: %v", err)
 		return err
 	}
-	log.Printf("got one message, going to sleep\n%s", d.Chunk)
-	time.Sleep(24 * 60 * 60 * time.Second)
+	log.Printf("got one message:\n%s\ngoing to sleep %f", d.Chunk, s.sleepSeconds.Seconds())
+	time.Sleep(s.sleepSeconds)
+	log.Printf("closing stream")
 	if err := srv.SendAndClose(&empty.Empty{}); err != nil {
 		log.Printf("send error: %v", err)
 	}
 	return nil
 }
 
-func startServer(addr string) {
-	s := service{}
+func startServer(addr string, sleepSeconds int) {
+	s := newService(sleepSeconds)
 	conn := grpc.NewServer()
 	hello.RegisterConnectorServer(conn, s)
 	// Register reflection conn on gRPC server.
@@ -68,7 +75,7 @@ func startClient(addr string, concurrency int) {
 	}
 
 	ctx, cancel := context.WithCancel(context.TODO())
-	dialCtx, _ := context.WithTimeout(ctx, 10*time.Second)
+	dialCtx, _ := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(dialCtx, addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -84,30 +91,36 @@ func startClient(addr string, concurrency int) {
 		go func(id int) {
 			defer wg.Done()
 
-			c := hello.NewConnectorClient(conn)
-			stream, err := c.Hi(ctx)
-			if err != nil {
-				log.Printf("[#%d] ERROR: failed to call Hi: %v", id, err)
-				return
-			}
-			log.Printf("[#%d] send %d bytes of data", id, len(data))
-			var n int
-			tick := time.Tick(1 * time.Nanosecond)
-			for range tick {
-				n += 1
-				log.Printf("[#%d] sending heartbeat: %d", id, n)
-				if err := stream.Send(&hello.Data{
-					Chunk: data,
-				}); err != nil {
-					log.Printf("[#%d] send error: %v", id, err)
+			reconnect := true
+			for reconnect {
+				c := hello.NewConnectorClient(conn)
+				stream, err := c.Hi(ctx)
+				if err != nil {
+					log.Printf("[#%d] ERROR: failed to call Hi: %v", id, err)
 					break
 				}
+				log.Printf("[#%d] send %d bytes of data", id, len(data))
+				var n int
+				tick := time.Tick(1 * time.Nanosecond)
+				for range tick {
+					n += 1
+					log.Printf("[#%d] sending heartbeat: %d", id, n)
+					if err := stream.Send(&hello.Data{
+						Chunk: data,
+					}); err != nil {
+						log.Printf("[#%d] send error: %v", id, err)
+						if err.Error() != "EOF" {
+							reconnect = false
+						}
+						break
+					}
+				}
+				if _, err := stream.CloseAndRecv(); err != nil {
+					log.Printf("[#%d] receive error: %v", id, err)
+					continue
+				}
+				log.Printf("[#%d] received and closed", id)
 			}
-			if _, err := stream.CloseAndRecv(); err != nil {
-				log.Printf("[#%d] receive error: %v", id, err)
-				return
-			}
-			log.Printf("[#%d] received and closed", id)
 		}(i)
 	}
 	wg.Wait()
@@ -115,11 +128,25 @@ func startClient(addr string, concurrency int) {
 
 func main() {
 	if len(os.Args) < 3 {
-		log.Panic("Usage: " + os.Args[0] + " <server|client> <addr> [client-concurrency]")
+		log.Panic(`
+Usage:
+
+1. To run as a server:
+  %s server <addr> [seconds-to-sleep-before-close-stream]
+
+2. To run as a client:
+  %s client <addr> [client-concurrency]
+		`,
+			os.Args[0],
+		)
 	}
 	switch os.Args[1] {
 	case "server":
-		startServer(os.Args[2])
+		t := 24 * 60 * 60
+		if len(os.Args) > 3 {
+			t, _ = strconv.Atoi(os.Args[3])
+		}
+		startServer(os.Args[2], t)
 	default:
 		n := 1
 		if len(os.Args) > 3 {
