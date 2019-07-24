@@ -8,6 +8,8 @@ metadata:
     version: 0.0.1-alpha1.1
   annotations:
     description: Gimi testing GRPC with ISTIO
+    sidecar.istio.io/proxyMemory: "5Gi"
+    sidecar.istio.io/proxyCPU: "1000m"
 spec:
   securityContext:
     runAsNonRoot: true
@@ -16,9 +18,10 @@ spec:
   restartPolicy: Never
   containers:
   - name: grpc-client
-    image: gimil/hi:latest
+    image: gimil/hi-v2:latest
     imagePullPolicy: Always
     args:
       - "client"
       - "gimi-grpc-server:8080"
+      - "5"
       - "1"

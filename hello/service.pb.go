@@ -78,9 +78,9 @@ var fileDescriptor_a0b84a42fa06f626 = []byte{
 	0xe6, 0x16, 0x94, 0x54, 0x42, 0xd4, 0x28, 0xc9, 0x70, 0xb1, 0xb8, 0x24, 0x96, 0x24, 0x0a, 0x89,
 	0x70, 0xb1, 0x26, 0x67, 0x94, 0xe6, 0x65, 0x4b, 0x30, 0x2a, 0x30, 0x6a, 0x70, 0x06, 0x41, 0x38,
 	0x46, 0x56, 0x5c, 0x9c, 0xce, 0xf9, 0x79, 0x79, 0xa9, 0xc9, 0x25, 0xf9, 0x45, 0x42, 0xba, 0x5c,
-	0x4c, 0x1e, 0x99, 0x42, 0xdc, 0x7a, 0x60, 0x53, 0xf5, 0x40, 0xba, 0xa4, 0xc4, 0xf4, 0x20, 0x66,
-	0xeb, 0xc1, 0xcc, 0xd6, 0x73, 0x05, 0x99, 0xad, 0xc4, 0xa0, 0xc1, 0xe8, 0xc4, 0x1e, 0x05, 0xb1,
-	0x3f, 0x89, 0x0d, 0x2c, 0x69, 0x0c, 0x08, 0x00, 0x00, 0xff, 0xff, 0xd6, 0xd1, 0xa5, 0xc1, 0x9e,
+	0x4c, 0x1e, 0x99, 0x42, 0x62, 0x7a, 0x10, 0xe3, 0xf4, 0x60, 0xc6, 0xe9, 0xb9, 0x82, 0x8c, 0x93,
+	0xe2, 0xd6, 0x03, 0xdb, 0xa6, 0x07, 0x32, 0x4d, 0x89, 0xc1, 0x80, 0xd1, 0x89, 0x3d, 0x0a, 0x62,
+	0x7f, 0x12, 0x1b, 0x58, 0xa5, 0x31, 0x20, 0x00, 0x00, 0xff, 0xff, 0x29, 0xcf, 0x4e, 0x55, 0x9e,
 	0x00, 0x00, 0x00,
 }
 
@@ -96,7 +96,7 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ConnectorClient interface {
-	Hi(ctx context.Context, opts ...grpc.CallOption) (Connector_HiClient, error)
+	Hi(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (Connector_HiClient, error)
 }
 
 type connectorClient struct {
@@ -107,18 +107,23 @@ func NewConnectorClient(cc *grpc.ClientConn) ConnectorClient {
 	return &connectorClient{cc}
 }
 
-func (c *connectorClient) Hi(ctx context.Context, opts ...grpc.CallOption) (Connector_HiClient, error) {
+func (c *connectorClient) Hi(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (Connector_HiClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_Connector_serviceDesc.Streams[0], "/hello.Connector/Hi", opts...)
 	if err != nil {
 		return nil, err
 	}
 	x := &connectorHiClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
 	return x, nil
 }
 
 type Connector_HiClient interface {
-	Send(*Data) error
-	CloseAndRecv() (*empty.Empty, error)
+	Recv() (*Data, error)
 	grpc.ClientStream
 }
 
@@ -126,15 +131,8 @@ type connectorHiClient struct {
 	grpc.ClientStream
 }
 
-func (x *connectorHiClient) Send(m *Data) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *connectorHiClient) CloseAndRecv() (*empty.Empty, error) {
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	m := new(empty.Empty)
+func (x *connectorHiClient) Recv() (*Data, error) {
+	m := new(Data)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -143,14 +141,14 @@ func (x *connectorHiClient) CloseAndRecv() (*empty.Empty, error) {
 
 // ConnectorServer is the server API for Connector service.
 type ConnectorServer interface {
-	Hi(Connector_HiServer) error
+	Hi(*empty.Empty, Connector_HiServer) error
 }
 
 // UnimplementedConnectorServer can be embedded to have forward compatible implementations.
 type UnimplementedConnectorServer struct {
 }
 
-func (*UnimplementedConnectorServer) Hi(srv Connector_HiServer) error {
+func (*UnimplementedConnectorServer) Hi(req *empty.Empty, srv Connector_HiServer) error {
 	return status.Errorf(codes.Unimplemented, "method Hi not implemented")
 }
 
@@ -159,12 +157,15 @@ func RegisterConnectorServer(s *grpc.Server, srv ConnectorServer) {
 }
 
 func _Connector_Hi_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ConnectorServer).Hi(&connectorHiServer{stream})
+	m := new(empty.Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ConnectorServer).Hi(m, &connectorHiServer{stream})
 }
 
 type Connector_HiServer interface {
-	SendAndClose(*empty.Empty) error
-	Recv() (*Data, error)
+	Send(*Data) error
 	grpc.ServerStream
 }
 
@@ -172,16 +173,8 @@ type connectorHiServer struct {
 	grpc.ServerStream
 }
 
-func (x *connectorHiServer) SendAndClose(m *empty.Empty) error {
+func (x *connectorHiServer) Send(m *Data) error {
 	return x.ServerStream.SendMsg(m)
-}
-
-func (x *connectorHiServer) Recv() (*Data, error) {
-	m := new(Data)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 var _Connector_serviceDesc = grpc.ServiceDesc{
@@ -192,7 +185,7 @@ var _Connector_serviceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Hi",
 			Handler:       _Connector_Hi_Handler,
-			ClientStreams: true,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "service.proto",

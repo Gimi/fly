@@ -16,43 +16,37 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-type service struct {
-	sleepSeconds time.Duration
-}
+const data = `We are actively soliciting feedback on all these proposals. We are especially interested in fact-based evidence illustrating why a proposal might not work well in practice, or problematic aspects we might have missed in the design. Convincing examples in support of a proposal are also very helpful. On the other hand, comments containing only personal opinions are less actionable: we can acknowledge them but we can’t address them in any constructive way. Before posting, please take the time to read the detailed design docs and prior feedback or feedback summaries. Especially in long discussions, your concern may have already been raised and discussed in earlier comments.
 
-func newService(sleepSeconds int) service {
-	return service{time.Duration(sleepSeconds) * time.Second}
-}
+Unless there are strong reasons to not even proceed into the experimental phase with a given proposal, we are planning to have all these implemented at the start of the Go 1.14 cycle (beginning of August, 2019) so that they can be evaluated in practice. Per the proposal evaluation process, the final decision will be made at the end of the development cycle (beginning of November, 2019).
 
-func (s service) Hi(srv hello.Connector_HiServer) error {
+Thank you for helping making Go a better language!
+
+By Robert Griesemer, for the Go team`
+
+type service struct{}
+
+func (s service) Hi(_ *empty.Empty, stream hello.Connector_HiServer) error {
 	log.Println("oh, someone just said 'Hi'")
-	for {
-		d, err := srv.Recv()
-		if err != nil {
-			log.Printf("receive error: %v", err)
+	log.Printf("sending %d-byte length of data", len(data))
+	var n int
+	tick := time.Tick(1 * time.Nanosecond)
+	for range tick {
+		n += 1
+		log.Printf("sending data No. %d", n)
+		if err := stream.Send(&hello.Data{
+			Chunk: data,
+		}); err != nil {
+			log.Printf("send error: %v", err)
 			break
 		}
-		log.Printf("got one message (%d bytes), going to sleep %f", len(d.Chunk), s.sleepSeconds.Seconds())
-		time.Sleep(s.sleepSeconds)
 	}
-	log.Printf("try to read buffered messages")
-	n := 0
-	var err error
-	for err == nil {
-		_, err = srv.Recv()
-		if err == nil {
-			n += 1
-		}
-	}
-	log.Printf("got %d buffered messages, Recv() error: %v, closing stream", n, err)
-	if err := srv.SendAndClose(&empty.Empty{}); err != nil {
-		log.Printf("close stream error: %v", err)
-	}
+	log.Printf("Byebye")
 	return nil
 }
 
-func startServer(addr string, sleepSeconds int) {
-	s := newService(sleepSeconds)
+func startServer(addr string) {
+	s := service{}
 	conn := grpc.NewServer()
 	hello.RegisterConnectorServer(conn, s)
 	// Register reflection conn on gRPC server.
@@ -72,18 +66,12 @@ func startServer(addr string, sleepSeconds int) {
 	log.Println("Bye bye")
 }
 
-const data = `We are actively soliciting feedback on all these proposals. We are especially interested in fact-based evidence illustrating why a proposal might not work well in practice, or problematic aspects we might have missed in the design. Convincing examples in support of a proposal are also very helpful. On the other hand, comments containing only personal opinions are less actionable: we can acknowledge them but we can’t address them in any constructive way. Before posting, please take the time to read the detailed design docs and prior feedback or feedback summaries. Especially in long discussions, your concern may have already been raised and discussed in earlier comments.
-
-Unless there are strong reasons to not even proceed into the experimental phase with a given proposal, we are planning to have all these implemented at the start of the Go 1.14 cycle (beginning of August, 2019) so that they can be evaluated in practice. Per the proposal evaluation process, the final decision will be made at the end of the development cycle (beginning of November, 2019).
-
-Thank you for helping making Go a better language!
-
-By Robert Griesemer, for the Go team`
-
-func startClient(addr string, concurrency int) {
+func startClient(addr string, concurrency int, interval int) {
 	if concurrency < 1 {
 		concurrency = 1
 	}
+
+	iv := time.Duration(interval) * time.Second
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	dialCtx, _ := context.WithTimeout(ctx, 30*time.Second)
@@ -102,35 +90,27 @@ func startClient(addr string, concurrency int) {
 		go func(id int) {
 			defer wg.Done()
 
-			reconnect := true
-			for reconnect {
-				c := hello.NewConnectorClient(conn)
-				stream, err := c.Hi(ctx)
+			myCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			c := hello.NewConnectorClient(conn)
+
+			stream, err := c.Hi(myCtx, &empty.Empty{})
+			if err != nil {
+				log.Printf("[#%d] ERROR: failed to call Hi: %v", id, err)
+				return
+			}
+
+			n := 0
+			tick := time.Tick(iv)
+			for range tick {
+				d, err := stream.Recv()
 				if err != nil {
-					log.Printf("[#%d] ERROR: failed to call Hi: %v", id, err)
+					log.Printf("receive error: %v", err)
 					break
 				}
-				log.Printf("[#%d] send %d bytes of data", id, len(data))
-				var n int
-				tick := time.Tick(1 * time.Nanosecond)
-				for range tick {
-					n += 1
-					log.Printf("[#%d] sending heartbeat: %d", id, n)
-					if err := stream.Send(&hello.Data{
-						Chunk: data,
-					}); err != nil {
-						log.Printf("[#%d] send error: %v", id, err)
-						if err.Error() != "EOF" {
-							reconnect = false
-						}
-						break
-					}
-				}
-				if _, err := stream.CloseAndRecv(); err != nil {
-					log.Printf("[#%d] receive error: %v", id, err)
-					continue
-				}
-				log.Printf("[#%d] received and closed", id)
+				n += 1
+				log.Printf("got No. %d message (%d bytes), wait for another %f seconds", n, len(d.Chunk), iv.Seconds())
 			}
 		}(i)
 	}
@@ -143,26 +123,27 @@ func main() {
 Usage:
 
 1. To run as a server:
-  %s server <addr> [seconds-to-sleep-before-close-stream]
+  %s server <addr>
 
 2. To run as a client:
-  %s client <addr> [client-concurrency]
+  %s client <addr> [client-concurrency] [recv-interval-in-second]
 		`,
 			os.Args[0],
 		)
 	}
 	switch os.Args[1] {
 	case "server":
-		t := 24 * 60 * 60
-		if len(os.Args) > 3 {
-			t, _ = strconv.Atoi(os.Args[3])
-		}
-		startServer(os.Args[2], t)
+		startServer(os.Args[2])
 	default:
 		n := 1
 		if len(os.Args) > 3 {
 			n, _ = strconv.Atoi(os.Args[3])
 		}
-		startClient(os.Args[2], n)
+
+		t := 1
+		if len(os.Args) > 4 {
+			t, _ = strconv.Atoi(os.Args[4])
+		}
+		startClient(os.Args[2], n, t)
 	}
 }

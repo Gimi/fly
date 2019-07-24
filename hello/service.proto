@@ -10,5 +10,5 @@ message Data {
 }
 
 service Connector {
-  rpc Hi(stream Data) returns (google.protobuf.Empty) {}
+  rpc Hi(google.protobuf.Empty) returns (stream Data) {}
 }
