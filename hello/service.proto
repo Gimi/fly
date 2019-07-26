@@ -6,7 +6,7 @@ option go_package = "hello";
 import "google/protobuf/empty.proto";
 
 message Data {
-  string chunk = 1;
+  repeated string chunk = 1;
 }
 
 service Connector {

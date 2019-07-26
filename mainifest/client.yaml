@@ -1,27 +1,35 @@
 ---
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: gimi-grpc-client
-  labels:
-    app: gimi-grpc-client
-    version: 0.0.1-alpha1.1
-  annotations:
-    description: Gimi testing GRPC with ISTIO
-    sidecar.istio.io/proxyMemory: "5Gi"
-    sidecar.istio.io/proxyCPU: "1000m"
 spec:
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 998
-    fsGroup: 998
-  restartPolicy: Never
-  containers:
-  - name: grpc-client
-    image: gimil/hi-v2:latest
-    imagePullPolicy: Always
-    args:
-      - "client"
-      - "gimi-grpc-server:8080"
-      - "5"
-      - "1"
+  replicas: 5
+  selector:
+    matchLabels:
+      app: gimi-grpc-client
+      version: 0.0.1-alpha1.1
+  template:
+    metadata:
+      labels:
+        app: gimi-grpc-client
+        version: 0.0.1-alpha1.1
+      annotations:
+        description: Gimi testing GRPC with ISTIO
+        sidecar.istio.io/proxyMemory: "1.5Gi"
+        sidecar.istio.io/proxyCPU: "1000m"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 998
+        fsGroup: 998
+      restartPolicy: Always
+      containers:
+      - name: grpc-client
+        image: gimil/hi-v2:latest
+        imagePullPolicy: Always
+        args:
+          - "client"
+          - "gimi-grpc-server:8080"
+          - "1"
+          - "1"

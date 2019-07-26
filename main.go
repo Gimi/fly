@@ -29,13 +29,14 @@ type service struct{}
 func (s service) Hi(_ *empty.Empty, stream hello.Connector_HiServer) error {
 	log.Println("oh, someone just said 'Hi'")
 	log.Printf("sending %d-byte length of data", len(data))
-	var n int
-	tick := time.Tick(1 * time.Nanosecond)
-	for range tick {
-		n += 1
-		log.Printf("sending data No. %d", n)
+	for n := 0; n < 1000; n++ {
+		batch := make([]string, 1000)
+		for i := range batch {
+			batch[i] = data
+		}
+		// log.Printf("sending data No. %d", n)
 		if err := stream.Send(&hello.Data{
-			Chunk: data,
+			Chunk: batch,
 		}); err != nil {
 			log.Printf("send error: %v", err)
 			break
@@ -102,16 +103,18 @@ func startClient(addr string, concurrency int, interval int) {
 			}
 
 			n := 0
-			tick := time.Tick(iv)
-			for range tick {
-				d, err := stream.Recv()
+			time.Tick(iv)
+			t := time.Now()
+			for {
+				data, err := stream.Recv()
 				if err != nil {
 					log.Printf("receive error: %v", err)
 					break
 				}
-				n += 1
-				log.Printf("got No. %d message (%d bytes), wait for another %f seconds", n, len(d.Chunk), iv.Seconds())
+				n += len(data.Chunk)
+				// log.Printf("got No. %d message (%d bytes), wait for another %f seconds", n, len(d.Chunk), iv.Seconds())
 			}
+			log.Printf("Done. Messages: %d, Time: %f seconds", n, time.Now().Sub(t).Seconds())
 		}(i)
 	}
 	wg.Wait()
